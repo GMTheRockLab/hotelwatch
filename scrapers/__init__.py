@@ -1,0 +1,1 @@
+# HotelWatch scrapers package

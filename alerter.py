@@ -1,0 +1,163 @@
+"""
+HotelWatch — alerter.py
+Sends price drop alert emails via SMTP (works with any email provider).
+Configured via environment variables.
+"""
+
+import os
+import smtplib
+import logging
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from datetime import datetime, date
+
+log = logging.getLogger("hotelwatch.alerter")
+
+
+def send_price_drop_alert(user, booking, price_check):
+    """
+    Send a price drop alert email to the user.
+    Uses SMTP settings from environment variables.
+    """
+    recipient = user.alert_email or user.email
+    if not recipient:
+        log.warning(f"No alert email for user {user.id}, skipping alert")
+        return
+
+    # Calculate savings info
+    savings      = price_check.price_drop or 0
+    current      = price_check.current_price or 0
+    booked       = price_check.booked_price
+    pct_savings  = round((savings / booked) * 100, 1) if booked else 0
+
+    # Days until cancellation deadline
+    days_until_deadline = None
+    if booking.cancellation_deadline:
+        try:
+            deadline = date.fromisoformat(booking.cancellation_deadline)
+            days_until_deadline = (deadline - date.today()).days
+        except ValueError:
+            pass
+
+    deadline_html = ""
+    if days_until_deadline is not None:
+        urgency_color = "#e74c3c" if days_until_deadline <= 2 else "#f39c12" if days_until_deadline <= 5 else "#27ae60"
+        deadline_html = f"""
+        <tr>
+            <td style="padding:8px 0;color:#666;font-size:14px;">⏰ Cancellation deadline</td>
+            <td style="padding:8px 0;font-size:14px;font-weight:bold;color:{urgency_color};">
+                {booking.cancellation_deadline} ({days_until_deadline} day{'s' if days_until_deadline != 1 else ''} left)
+            </td>
+        </tr>"""
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;margin:0;padding:20px;">
+  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#2c3e50,#3498db);padding:32px 32px 24px;text-align:center;">
+      <div style="font-size:36px;">🏨</div>
+      <h1 style="color:#fff;margin:8px 0 4px;font-size:22px;font-weight:700;">Price Drop Alert</h1>
+      <p style="color:rgba(255,255,255,0.85);margin:0;font-size:14px;">HotelWatch found a better rate</p>
+    </div>
+
+    <!-- Savings badge -->
+    <div style="background:#27ae60;color:#fff;text-align:center;padding:16px;">
+      <span style="font-size:28px;font-weight:800;">Save ${savings:.0f}</span>
+      <span style="font-size:16px;opacity:0.9;margin-left:8px;">({pct_savings}% off your booked rate)</span>
+    </div>
+
+    <!-- Details -->
+    <div style="padding:28px 32px;">
+      <h2 style="margin:0 0 4px;font-size:18px;color:#2c3e50;">{booking.hotel_name}</h2>
+      <p style="margin:0 0 20px;color:#777;font-size:14px;">
+        {booking.check_in} → {booking.check_out} &nbsp;·&nbsp; {booking.num_nights} night{'s' if booking.num_nights != 1 else ''}
+        {f' &nbsp;·&nbsp; {booking.room_type}' if booking.room_type else ''}
+      </p>
+
+      <table style="width:100%;border-collapse:collapse;border-top:1px solid #eee;">
+        <tr>
+          <td style="padding:12px 0;color:#666;font-size:14px;">Your booked rate</td>
+          <td style="padding:12px 0;font-size:14px;text-decoration:line-through;color:#999;">${booked:.0f}</td>
+        </tr>
+        <tr style="background:#f8fff8;">
+          <td style="padding:12px 0 12px 8px;color:#27ae60;font-size:15px;font-weight:600;">New rate available</td>
+          <td style="padding:12px 0;font-size:18px;font-weight:800;color:#27ae60;">${current:.0f}</td>
+        </tr>
+        {deadline_html}
+      </table>
+
+      <!-- CTA -->
+      <div style="text-align:center;margin:24px 0 16px;">
+        <a href="{booking.booking_url or '#'}"
+           style="display:inline-block;background:#3498db;color:#fff;text-decoration:none;
+                  padding:14px 32px;border-radius:8px;font-size:15px;font-weight:600;
+                  letter-spacing:0.3px;">
+          View Current Rate →
+        </a>
+      </div>
+
+      <p style="font-size:13px;color:#888;text-align:center;margin:0;line-height:1.6;">
+        To save, cancel your current booking and rebook at the lower rate<br>
+        before your cancellation deadline.
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="background:#f9f9f9;padding:16px 32px;border-top:1px solid #eee;text-align:center;">
+      <p style="font-size:12px;color:#aaa;margin:0;">
+        — Your Hotel Price Optimizer 🏨 &nbsp;·&nbsp;
+        <a href="{{unsubscribe_url}}" style="color:#aaa;">Manage alerts</a>
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>"""
+
+    plain = (
+        f"HotelWatch Price Drop Alert\n\n"
+        f"Hotel: {booking.hotel_name}\n"
+        f"Dates: {booking.check_in} → {booking.check_out}\n"
+        f"Your booked rate: ${booked:.0f}\n"
+        f"New rate: ${current:.0f}\n"
+        f"You could save: ${savings:.0f} ({pct_savings}%)\n"
+        f"Cancellation deadline: {booking.cancellation_deadline or 'unknown'}\n\n"
+        f"Book here: {booking.booking_url or 'see original booking'}\n\n"
+        f"To save: cancel your current booking and rebook at the lower rate before your deadline.\n\n"
+        f"— Your Hotel Price Optimizer 🏨"
+    )
+
+    subject = f"🏨 Hotel Price Drop — Save ${savings:.0f} on {booking.hotel_name}!"
+
+    _send_email(recipient, subject, html, plain)
+    log.info(f"Price drop alert sent to {recipient} for {booking.hotel_name} (${savings:.0f} savings)")
+
+
+def _send_email(to: str, subject: str, html: str, plain: str):
+    """Send email via SMTP. Configure via environment variables."""
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_pass = os.getenv("SMTP_PASS")
+    from_addr = os.getenv("SMTP_FROM", smtp_user)
+
+    if not smtp_user or not smtp_pass:
+        log.error("SMTP_USER and SMTP_PASS not configured — cannot send alert email")
+        raise RuntimeError("Email not configured")
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = f"HotelWatch <{from_addr}>"
+    msg["To"]      = to
+
+    msg.attach(MIMEText(plain, "plain"))
+    msg.attach(MIMEText(html,  "html"))
+
+    with smtplib.SMTP(smtp_host, smtp_port) as server:
+        server.ehlo()
+        server.starttls()
+        server.login(smtp_user, smtp_pass)
+        server.sendmail(from_addr, to, msg.as_string())
