@@ -311,37 +311,78 @@ def _detect_chain(hotel_name: str, booking_site: str) -> Optional[str]:
 
 def _build_booking_url(booking: dict) -> Optional[str]:
     """Build a direct URL to check rates for this booking."""
-    chain    = booking.get("hotel_chain")
-    check_in = booking.get("check_in", "")
-    check_out= booking.get("check_out", "")
+    chain      = booking.get("hotel_chain")
+    check_in   = booking.get("check_in", "")
+    check_out  = booking.get("check_out", "")
+    hotel_name = booking.get("hotel_name", "")
 
     if not check_in or not check_out:
         return None
 
-    # Format dates as MM/DD/YYYY for most hotel sites
-    def fmt(d):
+    # Format helpers
+    def fmt_slash(d):
         try:
             return datetime.strptime(d, "%Y-%m-%d").strftime("%m/%d/%Y")
         except ValueError:
             return d
 
+    def fmt_iso(d):
+        return d  # already YYYY-MM-DD
+
+    from urllib.parse import quote_plus
+
     if chain == "marriott":
         return (
             f"https://www.marriott.com/reservation/rateListMenu.mi"
-            f"?fromDate={fmt(check_in)}&toDate={fmt(check_out)}"
+            f"?fromDate={fmt_slash(check_in)}&toDate={fmt_slash(check_out)}"
         )
     if chain == "hilton":
         return (
             f"https://www.hilton.com/en/book/reservation/rooms/"
-            f"?arrivalDate={check_in}&departureDate={check_out}&numAdults=1"
+            f"?arrivalDate={fmt_iso(check_in)}&departureDate={fmt_iso(check_out)}&numAdults=1"
         )
     if chain == "hyatt":
         return (
             f"https://www.hyatt.com/shop/rooms"
-            f"?checkinDate={check_in}&checkoutDate={check_out}"
+            f"?checkinDate={fmt_iso(check_in)}&checkoutDate={fmt_iso(check_out)}&adults=1"
         )
-    if chain in ("expedia", "booking"):
-        return booking.get("booking_url")  # usually in the email itself
+    if chain == "ihg":
+        return (
+            f"https://www.ihg.com/hotels/us/en/reservation"
+            f"?fromDate={fmt_slash(check_in)}&toDate={fmt_slash(check_out)}&adults=1"
+        )
+    if chain == "wyndham":
+        return (
+            f"https://www.wyndhamhotels.com/search-results"
+            f"?checkInDate={fmt_slash(check_in)}&checkOutDate={fmt_slash(check_out)}&adults=1"
+        )
+    if chain == "choice":
+        return (
+            f"https://www.choicehotels.com/search"
+            f"?checkInDate={fmt_iso(check_in)}&checkOutDate={fmt_iso(check_out)}&adults=1"
+        )
+    if chain == "expedia":
+        q = quote_plus(hotel_name) if hotel_name else ""
+        return (
+            f"https://www.expedia.com/Hotel-Search"
+            f"?startDate={fmt_iso(check_in)}&endDate={fmt_iso(check_out)}&adults=1"
+            + (f"&destination={q}" if q else "")
+        )
+    if chain == "booking":
+        q = quote_plus(hotel_name) if hotel_name else ""
+        return (
+            f"https://www.booking.com/searchresults.html"
+            f"?checkin={fmt_iso(check_in)}&checkout={fmt_iso(check_out)}&group_adults=1"
+            + (f"&ss={q}" if q else "")
+        )
+
+    # Generic fallback — Google Hotels search for the hotel with dates
+    if hotel_name:
+        q = quote_plus(f"{hotel_name} hotel")
+        return (
+            f"https://www.google.com/travel/hotels/search"
+            f"?q={q}&checkin={fmt_iso(check_in)}&checkout={fmt_iso(check_out)}&adults=1"
+        )
 
     return None
 
