@@ -305,11 +305,20 @@
     </div>
     <div class="form-group">
       <label>Booking Site</label>
-      <input type="text" id="f-site" placeholder="e.g. Marriott.com, Expedia">
-    </div>
-    <div class="form-group">
-      <label>Booking URL (for price checks)</label>
-      <input type="url" id="f-url" placeholder="https://...">
+      <select id="f-site">
+        <option value="">— Select site (optional) —</option>
+        <option value="Marriott.com">Marriott.com</option>
+        <option value="Hilton.com">Hilton.com</option>
+        <option value="Hyatt.com">Hyatt.com</option>
+        <option value="IHG.com">IHG.com</option>
+        <option value="Wyndham.com">Wyndham.com</option>
+        <option value="ChoiceHotels.com">ChoiceHotels.com</option>
+        <option value="Expedia.com">Expedia.com</option>
+        <option value="Booking.com">Booking.com</option>
+        <option value="Hotels.com">Hotels.com</option>
+        <option value="Priceline.com">Priceline.com</option>
+        <option value="Other">Other</option>
+      </select>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -544,8 +553,7 @@ async function submitBooking() {
 
   const payload = {
     hotel_name:           name,
-    booking_site:         document.getElementById("f-site").value.trim() || null,
-    booking_url:          document.getElementById("f-url").value.trim()  || null,
+    booking_site:         document.getElementById("f-site").value || null,
     check_in:             checkin,
     check_out:            checkout,
     num_nights:           nights || 1,
