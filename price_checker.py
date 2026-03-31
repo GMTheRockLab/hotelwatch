@@ -10,27 +10,15 @@ from datetime import datetime, date, timezone
 from sqlalchemy.orm import Session
 
 from database import Booking, PriceCheck, User
-from scrapers.marriott import MarriottScraper
-from scrapers.generic  import GenericScraper
+from scrapers.google_hotels import GoogleHotelsScraper
 from alerter import send_price_drop_alert
 
 log = logging.getLogger("hotelwatch.price_checker")
 
-# Map chain name → scraper class
-SCRAPERS = {
-    "marriott": MarriottScraper,
-    "hilton":   GenericScraper,   # TODO: dedicated Hilton scraper
-    "hyatt":    GenericScraper,
-    "ihg":      GenericScraper,
-    "expedia":  GenericScraper,
-    "booking":  GenericScraper,
-}
 
-
-def get_scraper(chain: str):
-    """Return the right scraper for a hotel chain."""
-    cls = SCRAPERS.get(chain, GenericScraper)
-    return cls()
+def get_scraper(chain: str = None):
+    """Return the Google Hotels scraper — works for any hotel brand or independent."""
+    return GoogleHotelsScraper()
 
 
 def should_check(booking: Booking) -> tuple[bool, str]:
